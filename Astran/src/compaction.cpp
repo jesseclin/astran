@@ -3,8 +3,9 @@
  Compact layout. 
  \date 25-sep-2006 \author Cristiano Lazzari <clazz@inf.ufrgs.br> 
  */
-
+#include <regex>
 #include "compaction.h"
+using namespace std;
 
 /** Constructor. */
 Compaction::Compaction( cp_algo a ,string name) {
@@ -16,8 +17,36 @@ Compaction::Compaction( cp_algo a ,string name) {
 
 /** Insert new variable. */
 void Compaction::insertVal( string name ) {
-	variables[name] = 0;  
-	//  cout << "INS VAR " << name << endl;
+	stringstream name_ss(name);
+	string name_new;
+	regex str_expr_sign ("[+-]");
+	regex str_expr_litl ("[0-9]+(.*)");
+	regex str_expr_endl ("\n");
+	//cout << "[INFO]" << name << endl;
+	variables[name] = 0;
+	
+	while (name_ss >> name_new) { 
+		if (regex_match (name_new,str_expr_sign)){
+			//cout << "[SIGN]" << name_new << endl;
+		}
+		else if (regex_match (name_new,str_expr_litl)){
+			//cout << "[LITERAL]" << name_new << endl;
+		}
+		else if (regex_match (name_new,str_expr_endl)){
+			//cout << "[ENDL]" << name_new << endl;
+		}
+		else {
+			try {
+				//variables[name_new] = 0;
+				forceIntegerVar(name_new);
+				cout << "[INFO]" << name_new << endl;
+			} catch (std::exception &e) {
+				//cout << "[ERROR]" << name_new << endl;
+			}
+		}	
+		//  cout << "INS VAR " << name << endl;
+	}
+	
 }
 
 /** Insert new constraint. */
@@ -224,7 +253,11 @@ void Compaction::insertLowerBound( string v1, int val ) {
 
 /** Force these variavles to be integer. */
 void Compaction::forceIntegerVar( string v ) {
-	int_vars.push_back( v );
+	if (std::find(int_vars.begin(), int_vars.end(), v) == int_vars.end()) {
+		//if (int_vars.size()<715) {
+			int_vars.push_back( v );
+		//}
+	}
 }
 
 /** Force these variavles to be binary. */
@@ -439,8 +472,9 @@ int Compaction::solve(string lpSolverFile, int timeLimit) {
         
         // Constant zero
         variables[ "ZERO" ] = 0;
-        f << "Czero: ZERO = 0;" << endl;
+        f << "Czero: ZERO = 0" << endl;
         unsigned int i;
+		
         for (i = 0; i < constraints.size(); i++ ) {
             
             string v1 = constraints[i].v1->first;
@@ -487,17 +521,25 @@ int Compaction::solve(string lpSolverFile, int timeLimit) {
                 f << "C" << i << ": " << v1 << " >= " << val << endl;
             
         }
+		
         for ( unsigned int j = 0; j < ctrts.size(); j++ ) {
             f << "C" << i+j << ": " << ctrts[j] << endl;
         }
         
         if ( int_vars.size() > 0 ) {  
             f << "Generals" << endl; 
-            for (map<string,int>::iterator it = variables.begin();it != variables.end(); ++it){
-                if ( it != variables.begin() )
-                    f << " ";
-                f << it->first;
-            }
+            //for (map<string,int>::iterator it = variables.begin();it != variables.end(); ++it){
+            //	if ( it != variables.begin() )
+			//   		f << " ";
+			//	f << it->first;
+            //}
+			for ( unsigned int i = 0; i < int_vars.size(); i++ ) {
+				if (std::find(bin_vars.begin(), bin_vars.end(), int_vars[i]) == bin_vars.end()) {
+ 					if ( i != 0 )
+ 						f << " ";
+ 					f << int_vars[i];
+				}
+			}
             f << endl;
         }
         
@@ -533,10 +575,23 @@ int Compaction::solve(string lpSolverFile, int timeLimit) {
     
     string solFileName = lp_filename + ".sol";
     
-    remove(solFileName.c_str());
-    
-    string cmd = "\"" + lpSolverFile + "\" TimeLimit=" + to_string(timeLimit) + " ResultFile=" + solFileName + " " + lp_filename + ".lp";
+    //remove(solFileName.c_str());
 
+    regex str_expr_scip ("(.*)scip");
+    regex str_expr_highs ("(.*)highs");
+	string cmd;
+	if (regex_match(lpSolverFile,str_expr_highs))
+	{
+		cmd = "\"" + lpSolverFile + "\" --time_limit " + to_string(timeLimit) + "  --solution_file " + solFileName + " " + lp_filename + ".lp";
+	}
+	else if (regex_match(lpSolverFile,str_expr_scip))
+	{
+		cmd = "\"" + lpSolverFile +  "\"  -l " + solFileName + " -f " + lp_filename + ".lp";
+	}
+	else {
+		cmd = "\"" + lpSolverFile + "\" TimeLimit=" + to_string(timeLimit) + " ResultFile=" + solFileName + " " + lp_filename + ".lp";
+	}
+	
 	cout << "-> Running command: " << cmd << endl;
 	
 	FILE *x = _popen(cmd.c_str(), "r");
@@ -549,6 +604,7 @@ int Compaction::solve(string lpSolverFile, int timeLimit) {
     cerr << " ";
     
 	char line[150];
+	
 	while (fgets(line, 150, x)) {
 		istringstream s(line);
 		string n;		
@@ -561,8 +617,8 @@ int Compaction::solve(string lpSolverFile, int timeLimit) {
         
 		if(n=="ERROR" || n=="Time" || n=="Unable" || n=="Wrote" || n=="Optimal" || n=="Model")
 			cout << endl << line;
-        if(n=="Unable" || n=="Model")
-            return 0;
+        //if(n=="Unable" || n=="Model")
+        //    return 0;
     }
     
     _pclose(x);
